@@ -10,7 +10,7 @@ app.use(cors());
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 // Socket server configuration
-const SOCKET_SERVER_URL = process.env.SOCKET_SERVER_URL || 'http://localhost:3001';
+const SOCKET_SERVER_URL = process.env.SOCKET_SERVER_URL || 'https://aviator-socket-server.onrender.com';
 const SOCKET_SERVER_SECRET = process.env.SOCKET_SERVER_SECRET || 'your-secret-token';
 
 // Global variables
@@ -116,6 +116,39 @@ setInterval(generateAndStoreBatchMultipliers, ROUND_INTERVAL_MS);
 
 // Remove round syncing - socket server handles its own round progression
 
+// Root endpoint for uptime monitoring
+app.get('/', (req, res) => {
+  const response = { 
+    status: 'ok', 
+    service: 'aviator-backend',
+    timestamp: new Date().toISOString(),
+    currentRound,
+    batchSize: BATCH_SIZE,
+    interval: ROUND_INTERVAL_MS
+  };
+  res.setHeader('Content-Type', 'application/json');
+  res.status(200).json(response);
+});
+
+// Simple ping endpoint for basic uptime monitoring
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const response = {
+    status: 'healthy',
+    service: 'aviator-backend',
+    timestamp: new Date().toISOString(),
+    currentRound,
+    batchSize: BATCH_SIZE,
+    interval: ROUND_INTERVAL_MS,
+    socketServerUrl: SOCKET_SERVER_URL
+  };
+  res.json(response);
+});
+
 app.get('/api/multiplier/:round', async (req, res) => {
   const round = parseInt(req.params.round, 10);
   const { data, error } = await supabase
@@ -163,9 +196,19 @@ app.get('/api/current-round', (req, res) => {
   res.json({ currentRound, now });
 });
 
+// Catch-all route for 404s (must be last)
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found', 
+    message: 'Endpoint not found',
+    availableEndpoints: ['/', '/ping', '/health', '/api/multiplier/:round', '/api/multipliers', '/api/current', '/api/current-round']
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Backend started on port ${PORT} (round ${currentRound})`);
   console.log(`📦 Batch size: ${BATCH_SIZE} multipliers`);
   console.log(`⏱️ Interval: ${ROUND_INTERVAL_MS}ms per multiplier`);
+  console.log(`🔍 Uptime monitoring: /, /ping, /health`);
 });
