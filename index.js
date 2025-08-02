@@ -27,43 +27,48 @@ let recentMultipliers = [];
 
 function generateRealisticMultiplier() {
   const MIN = 1.01;
-  const MAX = 500;
+  const MAX = 100; // Reduced max to 100x for better tension
   
-  // Simple but effective random generation
-  const r = Math.random();
+  // Use provably fair formula with higher house edge
+  const HOUSE_EDGE = 0.16; // 16% house edge for extra harshness
+  const payout = (1 - HOUSE_EDGE) / (1 - Math.random());
   
-  // Use harsh exponent for quick losses
-  const exponent = 3.2; // Aggressive decay but not too extreme
-  const scaled = MIN + (MAX - MIN) * Math.pow(1 - r, exponent);
-
-  return Math.round(scaled * 100) / 100;
+  // Clamp to reasonable range
+  const multiplier = Math.max(MIN, Math.min(payout, MAX));
+  
+  return Math.round(multiplier * 100) / 100;
 }
 
 function maybeHugeMultiplier() {
   const r = Math.random();
   
-  // Rare huge multipliers to encourage losses
-  if (r < 0.0002) return 200 + Math.random() * 300; // 0.02% chance for 200x-500x
-  if (r < 0.001) return 100 + Math.random() * 100;  // 0.08% chance for 100x-200x
-  if (r < 0.005) return 25 + Math.random() * 25;    // 0.4% chance for 25x-50x
+  // Controlled rare multipliers for pacing
+  if (r < 0.0005) return 50 + Math.random() * 50;   // 0.05% chance for 50x-100x
+  if (r < 0.002) return 25 + Math.random() * 25;    // 0.15% chance for 25x-50x
+  if (r < 0.008) return 10 + Math.random() * 15;    // 0.6% chance for 10x-25x
   return null; // fall back to base logic
 }
 
 function applyBiasCorrection(multiplier) {
-  // Moderate bias correction to prevent extreme unfairness
-  const crashStreak = recentMultipliers.slice(-5).every(m => m === 1.01); // 5 crashes needed
+  // Fairness guards to prevent rage-quitting
+  const crashStreak = recentMultipliers.slice(-6).every(m => m === 1.01); // 6 crashes needed
   
-  // Check for low multipliers
-  const lowCount = recentMultipliers.slice(-10).filter(m => m <= 1.3).length;
+  // Check for extended low periods
+  const lowCount = recentMultipliers.slice(-12).filter(m => m <= 1.3).length;
+  const veryLowCount = recentMultipliers.slice(-8).filter(m => m <= 1.1).length;
 
   if (crashStreak) {
-    // Give a small boost to keep players hooked
-    multiplier = 1.5 + Math.random() * 1.5; // 1.5x-3x (small relief)
-    console.log(`🎯 Bias correction: Crash streak detected, boost to ${multiplier.toFixed(2)}x`);
-  } else if (lowCount >= 7 && multiplier < 1.5) {
-    // Small boost for too many low multipliers
-    multiplier = 1.3 + Math.random() * 0.7; // 1.3x-2x (small relief)
-    console.log(`📈 Bias correction: Too many lows, boost to ${multiplier.toFixed(2)}x`);
+    // Prevent extreme frustration with guaranteed relief
+    multiplier = 2 + Math.random() * 4; // 2x-6x relief
+    console.log(`🎯 Bias correction: Crash streak detected, relief to ${multiplier.toFixed(2)}x`);
+  } else if (veryLowCount >= 6) {
+    // Too many very low multipliers - moderate relief
+    multiplier = 1.5 + Math.random() * 2; // 1.5x-3.5x relief
+    console.log(`📈 Bias correction: Too many very lows, relief to ${multiplier.toFixed(2)}x`);
+  } else if (lowCount >= 9 && multiplier < 2.0) {
+    // Extended low period - small relief
+    multiplier = 1.8 + Math.random() * 1.2; // 1.8x-3x relief
+    console.log(`📈 Bias correction: Extended low period, relief to ${multiplier.toFixed(2)}x`);
   }
 
   // Add to recent history
@@ -94,22 +99,28 @@ function generateCrashMultiplier() {
 function applyLossPatterns(multiplier) {
   const round = nextRoundToGenerate;
   
-  // Simple loss patterns that are less aggressive
-  const pattern1 = (round % 10 === 0) && (Math.random() < 0.6); // Every 10th round, 60% chance of low
-  const pattern2 = (round % 15 === 0) && (Math.random() < 0.7); // Every 15th round, 70% chance of crash
+  // Hidden pacing system for controlled chaos
+  const forcedBigWin = (round % 65 === 0) && (Math.random() < 0.8); // Every ~65 rounds, 80% chance of big win
+  const variance = Math.floor(Math.random() * 11) - 5; // ±5 round variance
+  const adjustedRound = round + variance;
   
-  if (pattern2) {
-    // Force crash on pattern2
-    return 1.01;
-  } else if (pattern1) {
-    // Force low multiplier on pattern1
-    return 1.05 + Math.random() * 0.2; // 1.05x-1.25x
+  if (forcedBigWin || (adjustedRound % 65 === 0)) {
+    // Force a big win to prevent extreme frustration
+    return 30 + Math.random() * 70; // 30x-100x
   }
   
-  // Add subtle loss bias to high multipliers
-  if (multiplier > 3.0 && Math.random() < 0.2) {
-    // 20% chance to reduce very high multipliers
-    multiplier *= 0.7 + Math.random() * 0.2; // Reduce by 10-30%
+  // Anti-luck lock system
+  const recentLows = recentMultipliers.slice(-8).filter(m => m <= 1.3).length;
+  const recentHighs = recentMultipliers.slice(-12).filter(m => m >= 30).length;
+  
+  if (recentLows >= 6) {
+    // Too many low multipliers - give a small relief
+    return 2 + Math.random() * 3; // 2x-5x relief
+  } else if (recentHighs >= 3) {
+    // Too many high multipliers - reduce chance temporarily
+    if (multiplier > 10) {
+      multiplier *= 0.3 + Math.random() * 0.4; // Reduce by 30-70%
+    }
   }
   
   return multiplier;
@@ -125,14 +136,14 @@ async function generateAndStoreBatchMultipliers() {
     multiplier
   });
   
-  // Enhanced logging with distribution info
+  // Enhanced logging with distribution info (updated for new system)
   let multiplierType = '';
-  if (multiplier >= 200) multiplierType = '🔥 EPIC';
-  else if (multiplier >= 100) multiplierType = '⚡ HUGE';
-  else if (multiplier >= 25) multiplierType = '🎯 HIGH';
+  if (multiplier >= 50) multiplierType = '🔥 EPIC';
+  else if (multiplier >= 25) multiplierType = '⚡ HUGE';
+  else if (multiplier >= 10) multiplierType = '🎯 HIGH';
   else if (multiplier >= 5) multiplierType = '📈 GOOD';
   else if (multiplier >= 2) multiplierType = '✅ DECENT';
-  else if (multiplier >= 1.5) multiplierType = '📊 LOW';
+  else if (multiplier >= 1.3) multiplierType = '📊 LOW';
   else multiplierType = '💥 CRASH';
   
   console.log(`[Round ${nextRoundToGenerate}] ${multiplierType} Multiplier: ${multiplier}x`);
@@ -202,21 +213,21 @@ function displayDistributionStats() {
   
   const stats = {
     crashes: recentMultipliers.filter(m => m === 1.01).length,
-    low: recentMultipliers.filter(m => m > 1.01 && m <= 1.5).length,
-    decent: recentMultipliers.filter(m => m > 1.5 && m <= 2.5).length,
-    good: recentMultipliers.filter(m => m > 2.5 && m <= 5).length,
-    high: recentMultipliers.filter(m => m > 5 && m <= 25).length,
-    huge: recentMultipliers.filter(m => m > 25).length
+    low: recentMultipliers.filter(m => m > 1.01 && m <= 1.3).length,
+    decent: recentMultipliers.filter(m => m > 1.3 && m <= 2.5).length,
+    good: recentMultipliers.filter(m => m > 2.5 && m <= 10).length,
+    high: recentMultipliers.filter(m => m > 10 && m <= 30).length,
+    huge: recentMultipliers.filter(m => m > 30).length
   };
   
   const total = recentMultipliers.length;
   console.log(`📊 Distribution Stats (Last ${total} multipliers):`);
   console.log(`   💥 Crashes (1.01x): ${stats.crashes} (${(stats.crashes/total*100).toFixed(1)}%)`);
-  console.log(`   📊 Low (1.02-1.5x): ${stats.low} (${(stats.low/total*100).toFixed(1)}%)`);
-  console.log(`   ✅ Decent (1.5-2.5x): ${stats.decent} (${(stats.decent/total*100).toFixed(1)}%)`);
-  console.log(`   📈 Good (2.5-5x): ${stats.good} (${(stats.good/total*100).toFixed(1)}%)`);
-  console.log(`   🎯 High (5-25x): ${stats.high} (${(stats.high/total*100).toFixed(1)}%)`);
-  console.log(`   ⚡ Huge (25x+): ${stats.huge} (${(stats.huge/total*100).toFixed(1)}%)`);
+  console.log(`   📊 Low (1.02-1.3x): ${stats.low} (${(stats.low/total*100).toFixed(1)}%)`);
+  console.log(`   ✅ Decent (1.3-2.5x): ${stats.decent} (${(stats.decent/total*100).toFixed(1)}%)`);
+  console.log(`   📈 Good (2.5-10x): ${stats.good} (${(stats.good/total*100).toFixed(1)}%)`);
+  console.log(`   🎯 High (10-30x): ${stats.high} (${(stats.high/total*100).toFixed(1)}%)`);
+  console.log(`   ⚡ Huge (30x+): ${stats.huge} (${(stats.huge/total*100).toFixed(1)}%)`);
 }
 
 // Set up interval to generate 1 multiplier every 3 seconds
