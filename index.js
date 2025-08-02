@@ -29,58 +29,41 @@ function generateRealisticMultiplier() {
   const MIN = 1.01;
   const MAX = 500;
   
-  // Use time-based seed for unpredictability but with patterns
-  const timeSeed = Date.now() % 10000;
-  const roundSeed = nextRoundToGenerate % 100;
-  const combinedSeed = (timeSeed + roundSeed * 37) % 10000;
+  // Simple but effective random generation
+  const r = Math.random();
   
-  // Create pseudo-random but predictable pattern
-  const r = (Math.sin(combinedSeed * 0.1) + Math.cos(combinedSeed * 0.07) + Math.sin(combinedSeed * 0.03)) / 3;
-  const normalizedR = (r + 1) / 2; // Convert to 0-1 range
-  
-  // Use very harsh exponent for quick losses
-  const exponent = 3.5; // Much more aggressive decay
-  const scaled = MIN + (MAX - MIN) * Math.pow(1 - normalizedR, exponent);
+  // Use harsh exponent for quick losses
+  const exponent = 3.2; // Aggressive decay but not too extreme
+  const scaled = MIN + (MAX - MIN) * Math.pow(1 - r, exponent);
 
   return Math.round(scaled * 100) / 100;
 }
 
 function maybeHugeMultiplier() {
-  // Use same seed system for consistency
-  const timeSeed = Date.now() % 10000;
-  const roundSeed = nextRoundToGenerate % 100;
-  const combinedSeed = (timeSeed + roundSeed * 37) % 10000;
+  const r = Math.random();
   
-  const r = (Math.sin(combinedSeed * 0.15) + Math.cos(combinedSeed * 0.11)) / 2;
-  const normalizedR = (r + 1) / 2;
-  
-  // Much rarer huge multipliers to encourage losses
-  if (normalizedR < 0.0001) return 200 + Math.random() * 300; // 0.01% chance for 200x-500x
-  if (normalizedR < 0.0005) return 100 + Math.random() * 100;  // 0.04% chance for 100x-200x
-  if (normalizedR < 0.003) return 25 + Math.random() * 25;     // 0.25% chance for 25x-50x
+  // Rare huge multipliers to encourage losses
+  if (r < 0.0002) return 200 + Math.random() * 300; // 0.02% chance for 200x-500x
+  if (r < 0.001) return 100 + Math.random() * 100;  // 0.08% chance for 100x-200x
+  if (r < 0.005) return 25 + Math.random() * 25;    // 0.4% chance for 25x-50x
   return null; // fall back to base logic
 }
 
 function applyBiasCorrection(multiplier) {
-  // Much more aggressive bias correction to encourage losses
-  const crashStreak = recentMultipliers.slice(-4).every(m => m === 1.01); // Only 4 crashes needed
+  // Moderate bias correction to prevent extreme unfairness
+  const crashStreak = recentMultipliers.slice(-5).every(m => m === 1.01); // 5 crashes needed
   
-  // Check for low multipliers more aggressively
-  const lowCount = recentMultipliers.slice(-8).filter(m => m <= 1.2).length;
-  const veryLowCount = recentMultipliers.slice(-12).filter(m => m <= 1.1).length;
+  // Check for low multipliers
+  const lowCount = recentMultipliers.slice(-10).filter(m => m <= 1.3).length;
 
   if (crashStreak) {
-    // Give a very small boost to keep players hooked
-    multiplier = 1.2 + Math.random() * 0.8; // 1.2x-2x (very small relief)
-    console.log(`🎯 Bias correction: Crash streak detected, minimal boost to ${multiplier.toFixed(2)}x`);
-  } else if (veryLowCount >= 8) {
-    // Very small boost for too many very low multipliers
-    multiplier = 1.1 + Math.random() * 0.4; // 1.1x-1.5x (minimal relief)
-    console.log(`📈 Bias correction: Too many very lows, minimal boost to ${multiplier.toFixed(2)}x`);
-  } else if (lowCount >= 6 && multiplier < 1.3) {
-    // Tiny boost for low multipliers
-    multiplier = 1.15 + Math.random() * 0.3; // 1.15x-1.45x (tiny relief)
-    console.log(`📈 Bias correction: Too many lows, tiny boost to ${multiplier.toFixed(2)}x`);
+    // Give a small boost to keep players hooked
+    multiplier = 1.5 + Math.random() * 1.5; // 1.5x-3x (small relief)
+    console.log(`🎯 Bias correction: Crash streak detected, boost to ${multiplier.toFixed(2)}x`);
+  } else if (lowCount >= 7 && multiplier < 1.5) {
+    // Small boost for too many low multipliers
+    multiplier = 1.3 + Math.random() * 0.7; // 1.3x-2x (small relief)
+    console.log(`📈 Bias correction: Too many lows, boost to ${multiplier.toFixed(2)}x`);
   }
 
   // Add to recent history
@@ -111,23 +94,22 @@ function generateCrashMultiplier() {
 function applyLossPatterns(multiplier) {
   const round = nextRoundToGenerate;
   
-  // Create patterns that encourage losses but appear random
-  const pattern1 = (round % 7 === 0) && (Math.random() < 0.8); // Every 7th round, 80% chance of low
-  const pattern2 = (round % 13 === 0) && (Math.random() < 0.9); // Every 13th round, 90% chance of crash
-  const pattern3 = (round % 5 === 0) && (Math.random() < 0.7); // Every 5th round, 70% chance of low
+  // Simple loss patterns that are less aggressive
+  const pattern1 = (round % 10 === 0) && (Math.random() < 0.6); // Every 10th round, 60% chance of low
+  const pattern2 = (round % 15 === 0) && (Math.random() < 0.7); // Every 15th round, 70% chance of crash
   
   if (pattern2) {
     // Force crash on pattern2
     return 1.01;
-  } else if (pattern1 || pattern3) {
-    // Force low multiplier on pattern1 or pattern3
-    return 1.05 + Math.random() * 0.15; // 1.05x-1.20x
+  } else if (pattern1) {
+    // Force low multiplier on pattern1
+    return 1.05 + Math.random() * 0.2; // 1.05x-1.25x
   }
   
-  // Add subtle loss bias to all multipliers
-  if (multiplier > 2.0 && Math.random() < 0.3) {
-    // 30% chance to reduce high multipliers
-    multiplier *= 0.6 + Math.random() * 0.2; // Reduce by 20-40%
+  // Add subtle loss bias to high multipliers
+  if (multiplier > 3.0 && Math.random() < 0.2) {
+    // 20% chance to reduce very high multipliers
+    multiplier *= 0.7 + Math.random() * 0.2; // Reduce by 10-30%
   }
   
   return multiplier;
