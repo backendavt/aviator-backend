@@ -39,6 +39,20 @@ function generateRealisticMultiplier() {
   return Math.round(multiplier * 100) / 100;
 }
 
+function generateEnhancedDistribution() {
+  const r = Math.random();
+  
+  // Enhanced distribution to prevent too many lows in a row
+  if (r < 0.0002) return 40 + Math.random() * 10;   // 0.02% chance for 40x-50x
+  if (r < 0.001) return 25 + Math.random() * 15;    // 0.08% chance for 25x-40x
+  if (r < 0.005) return 15 + Math.random() * 10;    // 0.4% chance for 15x-25x
+  if (r < 0.02) return 8 + Math.random() * 7;       // 1.5% chance for 8x-15x
+  if (r < 0.08) return 4 + Math.random() * 4;       // 6% chance for 4x-8x
+  if (r < 0.25) return 2 + Math.random() * 2;       // 17% chance for 2x-4x
+  if (r < 0.55) return 1.3 + Math.random() * 0.7;   // 30% chance for 1.3x-2x
+  else return 1.01 + Math.random() * 0.29;          // 45% chance for 1.01x-1.3x
+}
+
 function maybeHugeMultiplier() {
   const r = Math.random();
   
@@ -50,30 +64,55 @@ function maybeHugeMultiplier() {
 }
 
 function applyBiasCorrection(multiplier) {
-  // Minimal bias correction to maintain 50% house edge
-  const crashStreak = recentMultipliers.slice(-8).every(m => m === 1.01); // 8 crashes needed
+  // Enhanced bias correction to prevent rigged appearance
+  const recentCount = recentMultipliers.length;
+  if (recentCount < 10) {
+    // Need enough data first
+    recentMultipliers.push(multiplier);
+    if (recentMultipliers.length > 100) recentMultipliers.shift();
+    return Math.round(multiplier * 100) / 100;
+  }
+  
+  // Analyze recent patterns more intelligently
+  const last5 = recentMultipliers.slice(-5);
+  const last10 = recentMultipliers.slice(-10);
+  const last15 = recentMultipliers.slice(-15);
+  
+  // Check for consecutive low multipliers
+  const consecutiveLows = last5.filter(m => m <= 1.3).length;
+  const consecutiveVeryLows = last5.filter(m => m <= 1.1).length;
+  const consecutiveCrashes = last5.filter(m => m === 1.01).length;
   
   // Check for extended low periods
-  const lowCount = recentMultipliers.slice(-15).filter(m => m <= 1.3).length;
-  const veryLowCount = recentMultipliers.slice(-10).filter(m => m <= 1.1).length;
-
-  if (crashStreak) {
-    // Minimal relief to prevent rage-quitting
+  const lowCount10 = last10.filter(m => m <= 1.3).length;
+  const lowCount15 = last15.filter(m => m <= 1.3).length;
+  
+  // Progressive relief system
+  if (consecutiveCrashes >= 3) {
+    // 3 crashes in a row - guaranteed relief
+    multiplier = 2.5 + Math.random() * 3.5; // 2.5x-6x relief
+    console.log(`🎯 Progressive relief: ${consecutiveCrashes} consecutive crashes → ${multiplier.toFixed(2)}x`);
+  } else if (consecutiveVeryLows >= 4) {
+    // 4 very lows in a row - strong relief
+    multiplier = 2 + Math.random() * 2; // 2x-4x relief
+    console.log(`📈 Strong relief: ${consecutiveVeryLows} consecutive very lows → ${multiplier.toFixed(2)}x`);
+  } else if (consecutiveLows >= 4) {
+    // 4 lows in a row - moderate relief
+    multiplier = 1.8 + Math.random() * 1.7; // 1.8x-3.5x relief
+    console.log(`📊 Moderate relief: ${consecutiveLows} consecutive lows → ${multiplier.toFixed(2)}x`);
+  } else if (lowCount10 >= 7) {
+    // 7+ lows in last 10 - small relief
     multiplier = 1.5 + Math.random() * 1.5; // 1.5x-3x relief
-    console.log(`🎯 Bias correction: Crash streak detected, relief to ${multiplier.toFixed(2)}x`);
-  } else if (veryLowCount >= 8) {
-    // Very minimal relief for extended lows
-    multiplier = 1.3 + Math.random() * 1.2; // 1.3x-2.5x relief
-    console.log(`📈 Bias correction: Too many very lows, relief to ${multiplier.toFixed(2)}x`);
-  } else if (lowCount >= 12 && multiplier < 1.5) {
-    // Minimal relief for extended low period
+    console.log(`📊 Small relief: ${lowCount10}/10 lows → ${multiplier.toFixed(2)}x`);
+  } else if (lowCount15 >= 10 && multiplier < 1.5) {
+    // 10+ lows in last 15 - minimal relief
     multiplier = 1.4 + Math.random() * 0.6; // 1.4x-2x relief
-    console.log(`📈 Bias correction: Extended low period, relief to ${multiplier.toFixed(2)}x`);
+    console.log(`📊 Minimal relief: ${lowCount15}/15 lows → ${multiplier.toFixed(2)}x`);
   }
-
+  
   // Add to recent history
   recentMultipliers.push(multiplier);
-  if (recentMultipliers.length > 100) recentMultipliers.shift(); // Keep buffer small
+  if (recentMultipliers.length > 100) recentMultipliers.shift();
 
   return Math.round(multiplier * 100) / 100;
 }
@@ -86,47 +125,59 @@ function generateCrashMultiplier() {
   let multiplier = maybeHugeMultiplier();
   
   if (!multiplier) {
-    // Use 50% house edge distribution
-    multiplier = generateRealisticMultiplier();
+    // Use enhanced distribution for better variety
+    multiplier = generateEnhancedDistribution();
   }
   
   // Add entropy to break patterns
   multiplier += entropy;
   
-  // Apply minimal loss patterns
-  multiplier = applyLossPatterns(multiplier);
+  // Apply enhanced loss patterns
+  multiplier = applyEnhancedLossPatterns(multiplier);
   
-  // Apply minimal bias correction
+  // Apply enhanced bias correction
   multiplier = applyBiasCorrection(multiplier);
   
   return Math.round(multiplier * 100) / 100;
 }
 
-function applyLossPatterns(multiplier) {
+function applyEnhancedLossPatterns(multiplier) {
   const round = nextRoundToGenerate;
+  const recentCount = recentMultipliers.length;
   
-  // Remove predictable pacing system - make it more random
-  // const forcedBigWin = (round % 65 === 0) && (Math.random() < 0.8);
-  // const variance = Math.floor(Math.random() * 11) - 5;
-  // const adjustedRound = round + variance;
+  if (recentCount < 8) {
+    // Not enough data yet, just add pattern breaking
+    const patternBreak = (Math.random() - 0.5) * 0.2;
+    return Math.max(1.01, multiplier + patternBreak);
+  }
   
-  // Only intervene in extreme cases
-  const recentLows = recentMultipliers.slice(-10).filter(m => m <= 1.3).length;
-  const recentHighs = recentMultipliers.slice(-15).filter(m => m >= 20).length;
+  // Enhanced pattern detection and prevention
+  const last8 = recentMultipliers.slice(-8);
+  const last12 = recentMultipliers.slice(-12);
   
-  if (recentLows >= 8) {
-    // Only minimal relief for extreme cases
-    return 1.5 + Math.random() * 1.5; // 1.5x-3x relief
-  } else if (recentHighs >= 4) {
-    // Reduce high multipliers more aggressively
-    if (multiplier > 8) {
-      multiplier *= 0.2 + Math.random() * 0.3; // Reduce by 50-80%
+  // Check for various problematic patterns
+  const consecutiveLows = last8.filter(m => m <= 1.3).length;
+  const consecutiveHighs = last12.filter(m => m >= 15).length;
+  const consecutiveCrashes = last8.filter(m => m === 1.01).length;
+  
+  // Progressive intervention system
+  if (consecutiveCrashes >= 2) {
+    // 2+ crashes in last 8 - force a decent multiplier
+    return 2 + Math.random() * 3; // 2x-5x
+  } else if (consecutiveLows >= 6) {
+    // 6+ lows in last 8 - force a good multiplier
+    return 3 + Math.random() * 4; // 3x-7x
+  } else if (consecutiveHighs >= 3) {
+    // 3+ highs in last 12 - reduce temporarily
+    if (multiplier > 10) {
+      multiplier *= 0.3 + Math.random() * 0.4; // Reduce by 30-70%
     }
   }
   
-  // Add small random variation to break patterns
-  const patternBreak = (Math.random() - 0.5) * 0.2; // ±0.1 variation
-  multiplier += patternBreak;
+  // Add enhanced pattern breaking
+  const patternBreak = (Math.random() - 0.5) * 0.3; // ±0.15 variation
+  const microVariation = Math.sin(round * 0.1) * 0.05; // Subtle wave pattern
+  multiplier += patternBreak + microVariation;
   
   return Math.max(1.01, multiplier);
 }
@@ -212,7 +263,7 @@ async function sendMultipliersToSocketServer(multipliers, startRound) {
   }
 }
 
-// Function to display distribution statistics
+// Enhanced function to display distribution statistics
 function displayDistributionStats() {
   if (recentMultipliers.length < 50) return; // Need enough data
   
@@ -226,13 +277,28 @@ function displayDistributionStats() {
   };
   
   const total = recentMultipliers.length;
-  console.log(`📊 Distribution Stats (Last ${total} multipliers):`);
+  
+  // Calculate consecutive patterns
+  const last10 = recentMultipliers.slice(-10);
+  const consecutiveLows = last10.filter(m => m <= 1.3).length;
+  const consecutiveCrashes = last10.filter(m => m === 1.01).length;
+  
+  console.log(`📊 Enhanced Distribution Stats (Last ${total} multipliers):`);
   console.log(`   💥 Crashes (1.01x): ${stats.crashes} (${(stats.crashes/total*100).toFixed(1)}%)`);
   console.log(`   📊 Low (1.02-1.3x): ${stats.low} (${(stats.low/total*100).toFixed(1)}%)`);
   console.log(`   ✅ Decent (1.3-2.5x): ${stats.decent} (${(stats.decent/total*100).toFixed(1)}%)`);
   console.log(`   📈 Good (2.5-10x): ${stats.good} (${(stats.good/total*100).toFixed(1)}%)`);
   console.log(`   🎯 High (10-30x): ${stats.high} (${(stats.high/total*100).toFixed(1)}%)`);
   console.log(`   ⚡ Huge (30x+): ${stats.huge} (${(stats.huge/total*100).toFixed(1)}%)`);
+  console.log(`   🔍 Last 10: ${consecutiveLows}/10 lows, ${consecutiveCrashes} crashes`);
+  
+  // Alert if patterns are detected
+  if (consecutiveLows >= 7) {
+    console.log(`⚠️  WARNING: ${consecutiveLows}/10 consecutive lows detected!`);
+  }
+  if (consecutiveCrashes >= 3) {
+    console.log(`🚨 ALERT: ${consecutiveCrashes} consecutive crashes detected!`);
+  }
 }
 
 // Set up interval to generate 1 multiplier every 3 seconds
