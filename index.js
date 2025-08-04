@@ -27,10 +27,10 @@ let recentMultipliers = [];
 
 function generateRealisticMultiplier() {
   const MIN = 1.01;
-  const MAX = 100; // Reduced max to 100x for better tension
+  const MAX = 50; // Reduced max for 50% house edge
   
-  // Use provably fair formula with higher house edge
-  const HOUSE_EDGE = 0.16; // 16% house edge for extra harshness
+  // Use 50% house edge formula
+  const HOUSE_EDGE = 0.50; // 50% house edge for maximum profitability
   const payout = (1 - HOUSE_EDGE) / (1 - Math.random());
   
   // Clamp to reasonable range
@@ -42,32 +42,32 @@ function generateRealisticMultiplier() {
 function maybeHugeMultiplier() {
   const r = Math.random();
   
-  // Controlled rare multipliers for pacing
-  if (r < 0.0005) return 50 + Math.random() * 50;   // 0.05% chance for 50x-100x
-  if (r < 0.002) return 25 + Math.random() * 25;    // 0.15% chance for 25x-50x
-  if (r < 0.008) return 10 + Math.random() * 15;    // 0.6% chance for 10x-25x
+  // Much rarer huge multipliers with 50% house edge
+  if (r < 0.0001) return 30 + Math.random() * 20;   // 0.01% chance for 30x-50x
+  if (r < 0.0005) return 20 + Math.random() * 10;    // 0.04% chance for 20x-30x
+  if (r < 0.002) return 10 + Math.random() * 10;     // 0.15% chance for 10x-20x
   return null; // fall back to base logic
 }
 
 function applyBiasCorrection(multiplier) {
-  // Fairness guards to prevent rage-quitting
-  const crashStreak = recentMultipliers.slice(-6).every(m => m === 1.01); // 6 crashes needed
+  // Minimal bias correction to maintain 50% house edge
+  const crashStreak = recentMultipliers.slice(-8).every(m => m === 1.01); // 8 crashes needed
   
   // Check for extended low periods
-  const lowCount = recentMultipliers.slice(-12).filter(m => m <= 1.3).length;
-  const veryLowCount = recentMultipliers.slice(-8).filter(m => m <= 1.1).length;
+  const lowCount = recentMultipliers.slice(-15).filter(m => m <= 1.3).length;
+  const veryLowCount = recentMultipliers.slice(-10).filter(m => m <= 1.1).length;
 
   if (crashStreak) {
-    // Prevent extreme frustration with guaranteed relief
-    multiplier = 2 + Math.random() * 4; // 2x-6x relief
+    // Minimal relief to prevent rage-quitting
+    multiplier = 1.5 + Math.random() * 1.5; // 1.5x-3x relief
     console.log(`🎯 Bias correction: Crash streak detected, relief to ${multiplier.toFixed(2)}x`);
-  } else if (veryLowCount >= 6) {
-    // Too many very low multipliers - moderate relief
-    multiplier = 1.5 + Math.random() * 2; // 1.5x-3.5x relief
+  } else if (veryLowCount >= 8) {
+    // Very minimal relief for extended lows
+    multiplier = 1.3 + Math.random() * 1.2; // 1.3x-2.5x relief
     console.log(`📈 Bias correction: Too many very lows, relief to ${multiplier.toFixed(2)}x`);
-  } else if (lowCount >= 9 && multiplier < 2.0) {
-    // Extended low period - small relief
-    multiplier = 1.8 + Math.random() * 1.2; // 1.8x-3x relief
+  } else if (lowCount >= 12 && multiplier < 1.5) {
+    // Minimal relief for extended low period
+    multiplier = 1.4 + Math.random() * 0.6; // 1.4x-2x relief
     console.log(`📈 Bias correction: Extended low period, relief to ${multiplier.toFixed(2)}x`);
   }
 
@@ -79,51 +79,56 @@ function applyBiasCorrection(multiplier) {
 }
 
 function generateCrashMultiplier() {
-  // Try for huge multiplier first
+  // Add entropy to prevent patterns
+  const entropy = Math.random() * 0.1; // Small random factor
+  
+  // Try for huge multiplier first (much rarer)
   let multiplier = maybeHugeMultiplier();
   
   if (!multiplier) {
-    // Use realistic power-law distribution
+    // Use 50% house edge distribution
     multiplier = generateRealisticMultiplier();
   }
   
-  // Apply loss-inducing patterns that appear random
+  // Add entropy to break patterns
+  multiplier += entropy;
+  
+  // Apply minimal loss patterns
   multiplier = applyLossPatterns(multiplier);
   
-  // Apply minimal bias correction to keep players hooked
+  // Apply minimal bias correction
   multiplier = applyBiasCorrection(multiplier);
   
-  return multiplier;
+  return Math.round(multiplier * 100) / 100;
 }
 
 function applyLossPatterns(multiplier) {
   const round = nextRoundToGenerate;
   
-  // Hidden pacing system for controlled chaos
-  const forcedBigWin = (round % 65 === 0) && (Math.random() < 0.8); // Every ~65 rounds, 80% chance of big win
-  const variance = Math.floor(Math.random() * 11) - 5; // ±5 round variance
-  const adjustedRound = round + variance;
+  // Remove predictable pacing system - make it more random
+  // const forcedBigWin = (round % 65 === 0) && (Math.random() < 0.8);
+  // const variance = Math.floor(Math.random() * 11) - 5;
+  // const adjustedRound = round + variance;
   
-  if (forcedBigWin || (adjustedRound % 65 === 0)) {
-    // Force a big win to prevent extreme frustration
-    return 30 + Math.random() * 70; // 30x-100x
-  }
+  // Only intervene in extreme cases
+  const recentLows = recentMultipliers.slice(-10).filter(m => m <= 1.3).length;
+  const recentHighs = recentMultipliers.slice(-15).filter(m => m >= 20).length;
   
-  // Anti-luck lock system
-  const recentLows = recentMultipliers.slice(-8).filter(m => m <= 1.3).length;
-  const recentHighs = recentMultipliers.slice(-12).filter(m => m >= 30).length;
-  
-  if (recentLows >= 6) {
-    // Too many low multipliers - give a small relief
-    return 2 + Math.random() * 3; // 2x-5x relief
-  } else if (recentHighs >= 3) {
-    // Too many high multipliers - reduce chance temporarily
-    if (multiplier > 10) {
-      multiplier *= 0.3 + Math.random() * 0.4; // Reduce by 30-70%
+  if (recentLows >= 8) {
+    // Only minimal relief for extreme cases
+    return 1.5 + Math.random() * 1.5; // 1.5x-3x relief
+  } else if (recentHighs >= 4) {
+    // Reduce high multipliers more aggressively
+    if (multiplier > 8) {
+      multiplier *= 0.2 + Math.random() * 0.3; // Reduce by 50-80%
     }
   }
   
-  return multiplier;
+  // Add small random variation to break patterns
+  const patternBreak = (Math.random() - 0.5) * 0.2; // ±0.1 variation
+  multiplier += patternBreak;
+  
+  return Math.max(1.01, multiplier);
 }
 
 async function generateAndStoreBatchMultipliers() {
