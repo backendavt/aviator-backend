@@ -143,6 +143,11 @@ function generateCrashMultiplier() {
   // Apply enhanced bias correction
   multiplier = applyBiasCorrection(multiplier);
   
+  // Ensure we don't get stuck on the same value by adding micro-variation
+  const microVariation = (Math.random() - 0.5) * 0.01; // ±0.005 variation
+  multiplier += microVariation;
+  
+  // Final rounding to prevent floating point issues
   return Math.round(multiplier * 100) / 100;
 }
 
