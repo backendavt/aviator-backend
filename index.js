@@ -15,8 +15,9 @@ const SOCKET_SERVER_SECRET = process.env.SOCKET_SERVER_SECRET || 'your-secret-to
 
 // Global variables
 let currentRound = 1000; // Start from a reasonable round number
-const ROUND_INTERVAL_MS = 3000; // 3 seconds per multiplier
 const BATCH_SIZE = 100; // Store 100 multipliers at a time for better efficiency
+const QUEUE_CHECK_INTERVAL = 5000; // Check socket queue every 5 seconds
+const QUEUE_THRESHOLD = 5; // Generate new batch when queue has less than 5 multipliers
 
 // Array to collect multipliers before storing
 let multiplierBuffer = [];
@@ -24,6 +25,10 @@ let nextRoundToGenerate = currentRound + 1; // Track the next round to generate
 
 // Track recent multipliers for bias correction
 let recentMultipliers = [];
+
+// Queue monitoring state
+let isGenerating = false; // Prevent multiple simultaneous generation attempts
+let lastQueueCheck = 0; // Track last queue check time
 
 function generateRealisticMultiplier() {
   const MIN = 1.01;
@@ -182,65 +187,6 @@ function applyEnhancedLossPatterns(multiplier) {
   return Math.max(1.01, multiplier);
 }
 
-async function generateAndStoreBatchMultipliers() {
-  // Generate 1 multiplier for the next sequential round
-  const multiplier = generateCrashMultiplier();
-  
-  // Add to buffer with the correct round number
-  multiplierBuffer.push({
-    round_number: nextRoundToGenerate,
-    multiplier
-  });
-  
-  // Enhanced logging with distribution info (updated for new system)
-  let multiplierType = '';
-  if (multiplier >= 50) multiplierType = '🔥 EPIC';
-  else if (multiplier >= 25) multiplierType = '⚡ HUGE';
-  else if (multiplier >= 10) multiplierType = '🎯 HIGH';
-  else if (multiplier >= 5) multiplierType = '📈 GOOD';
-  else if (multiplier >= 2) multiplierType = '✅ DECENT';
-  else if (multiplier >= 1.3) multiplierType = '📊 LOW';
-  else multiplierType = '💥 CRASH';
-  
-  console.log(`[Round ${nextRoundToGenerate}] ${multiplierType} Multiplier: ${multiplier}x`);
-  
-  // Increment for next generation
-  nextRoundToGenerate++;
-  
-  // If buffer is full (10 multipliers), store them all
-  if (multiplierBuffer.length >= BATCH_SIZE) {
-    // Insert all multipliers at once
-    const { data, error } = await supabase
-      .from('multipliers')
-      .insert(multiplierBuffer);
-    
-    if (error) {
-      console.error('Error inserting batch multipliers:', error);
-      return;
-    }
-    
-    // Safety check: ensure buffer has data before accessing
-    if (multiplierBuffer.length === 0) {
-      console.error('Error: multiplierBuffer is empty');
-      return;
-    }
-    
-    const startRound = multiplierBuffer[0].round_number;
-    const endRound = multiplierBuffer[multiplierBuffer.length - 1].round_number;
-    
-    console.log(`📦 Batch ${startRound}-${endRound}: [${multiplierBuffer.map(m => m.multiplier).join(', ')}]`);
-    
-    // Send multipliers to socket server for real-time simulation
-    await sendMultipliersToSocketServer(multiplierBuffer, startRound);
-    
-    // Update current round to the last generated round
-    currentRound = endRound;
-    
-    // Clear buffer
-    multiplierBuffer = [];
-  }
-}
-
 // Send multiplier batch to socket server
 async function sendMultipliersToSocketServer(multipliers, startRound) {
   try {
@@ -261,6 +207,118 @@ async function sendMultipliersToSocketServer(multipliers, startRound) {
   } catch (error) {
     console.error('❌ Error sending multipliers to socket server:', error.message);
   }
+}
+
+// Check socket server queue and generate if needed
+async function checkSocketQueueAndGenerate() {
+  // Prevent multiple simultaneous checks
+  if (isGenerating) {
+    console.log(`⏳ Already generating, skipping queue check`);
+    return;
+  }
+  
+  try {
+    // Check socket server health endpoint for queue size
+    const response = await fetch(`${SOCKET_SERVER_URL}/health`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`❌ Failed to check socket queue: ${response.status} ${response.statusText}`);
+      return;
+    }
+    
+    const data = await response.json();
+    const queueSize = data.queueSize || 0;
+    const gamePhase = data.gamePhase || 'unknown';
+    
+    console.log(`📊 Socket queue check: ${queueSize} multipliers, phase: ${gamePhase}`);
+    
+    // Generate new batch if queue is low
+    if (queueSize <= QUEUE_THRESHOLD) {
+      console.log(`🚀 Queue low (${queueSize} <= ${QUEUE_THRESHOLD}), generating new batch...`);
+      isGenerating = true;
+      
+      // Generate the full batch
+      await generateFullBatch();
+      
+      isGenerating = false;
+    } else {
+      console.log(`✅ Queue healthy (${queueSize} > ${QUEUE_THRESHOLD}), no generation needed`);
+    }
+    
+    lastQueueCheck = Date.now();
+    
+  } catch (error) {
+    console.error('❌ Error checking socket queue:', error.message);
+    isGenerating = false;
+  }
+}
+
+// Generate a full batch of multipliers
+async function generateFullBatch() {
+  console.log(`🎲 Generating batch of ${BATCH_SIZE} multipliers...`);
+  
+  // Generate all multipliers for the batch
+  for (let i = 0; i < BATCH_SIZE; i++) {
+    const multiplier = generateCrashMultiplier();
+    
+    // Add to buffer with the correct round number
+    multiplierBuffer.push({
+      round_number: nextRoundToGenerate,
+      multiplier
+    });
+    
+    // Enhanced logging with distribution info
+    let multiplierType = '';
+    if (multiplier >= 50) multiplierType = '🔥 EPIC';
+    else if (multiplier >= 25) multiplierType = '⚡ HUGE';
+    else if (multiplier >= 10) multiplierType = '🎯 HIGH';
+    else if (multiplier >= 5) multiplierType = '📈 GOOD';
+    else if (multiplier >= 2) multiplierType = '✅ DECENT';
+    else if (multiplier >= 1.3) multiplierType = '📊 LOW';
+    else multiplierType = '💥 CRASH';
+    
+    console.log(`[Round ${nextRoundToGenerate}] ${multiplierType} Multiplier: ${multiplier}x`);
+    
+    // Increment for next generation
+    nextRoundToGenerate++;
+  }
+  
+  // Store all multipliers in database
+  const { data, error } = await supabase
+    .from('multipliers')
+    .insert(multiplierBuffer);
+  
+  if (error) {
+    console.error('Error inserting batch multipliers:', error);
+    return;
+  }
+  
+  // Safety check: ensure buffer has data before accessing
+  if (multiplierBuffer.length === 0) {
+    console.error('Error: multiplierBuffer is empty');
+    return;
+  }
+  
+  const startRound = multiplierBuffer[0].round_number;
+  const endRound = multiplierBuffer[multiplierBuffer.length - 1].round_number;
+  
+  console.log(`📦 Generated batch ${startRound}-${endRound}: [${multiplierBuffer.map(m => m.multiplier).join(', ')}]`);
+  
+  // Send multipliers to socket server for real-time simulation
+  await sendMultipliersToSocketServer(multiplierBuffer, startRound);
+  
+  // Update current round to the last generated round
+  currentRound = endRound;
+  
+  // Clear buffer
+  multiplierBuffer = [];
+  
+  console.log(`✅ Batch generation complete!`);
 }
 
 // Enhanced function to display distribution statistics
@@ -301,11 +359,17 @@ function displayDistributionStats() {
   }
 }
 
-// Set up interval to generate 1 multiplier every 3 seconds
-setInterval(generateAndStoreBatchMultipliers, ROUND_INTERVAL_MS);
+// Set up interval to check socket queue and generate when needed
+setInterval(checkSocketQueueAndGenerate, QUEUE_CHECK_INTERVAL);
 
-// Display stats every 50 multipliers
-setInterval(displayDistributionStats, ROUND_INTERVAL_MS * 50);
+// Display stats every 50 queue checks (approximately every 4 minutes)
+setInterval(displayDistributionStats, QUEUE_CHECK_INTERVAL * 50);
+
+// Initial generation to get started
+console.log(`🚀 Starting queue-based multiplier generation system...`);
+console.log(`📊 Will check socket queue every ${QUEUE_CHECK_INTERVAL/1000} seconds`);
+console.log(`🎯 Will generate new batch when queue has ≤ ${QUEUE_THRESHOLD} multipliers`);
+setTimeout(checkSocketQueueAndGenerate, 2000); // Initial check after 2 seconds
 
 // Remove round syncing - socket server handles its own round progression
 
@@ -317,7 +381,9 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     currentRound,
     batchSize: BATCH_SIZE,
-    interval: ROUND_INTERVAL_MS
+    queueCheckInterval: QUEUE_CHECK_INTERVAL,
+    queueThreshold: QUEUE_THRESHOLD,
+    isGenerating
   };
   res.setHeader('Content-Type', 'application/json');
   res.status(200).json(response);
@@ -336,8 +402,11 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     currentRound,
     batchSize: BATCH_SIZE,
-    interval: ROUND_INTERVAL_MS,
-    socketServerUrl: SOCKET_SERVER_URL
+    queueCheckInterval: QUEUE_CHECK_INTERVAL,
+    queueThreshold: QUEUE_THRESHOLD,
+    socketServerUrl: SOCKET_SERVER_URL,
+    isGenerating,
+    lastQueueCheck: lastQueueCheck ? new Date(lastQueueCheck).toISOString() : null
   };
   res.json(response);
 });
@@ -389,12 +458,115 @@ app.get('/api/current-round', (req, res) => {
   res.json({ currentRound, now });
 });
 
+// Manual trigger endpoint for testing queue-based generation
+app.post('/api/trigger-generation', async (req, res) => {
+  try {
+    console.log(`🔧 Manual trigger: Checking socket queue and generating if needed...`);
+    await checkSocketQueueAndGenerate();
+    res.json({ 
+      success: true, 
+      message: 'Queue check and generation triggered',
+      isGenerating,
+      lastQueueCheck: lastQueueCheck ? new Date(lastQueueCheck).toISOString() : null
+    });
+  } catch (error) {
+    console.error('❌ Error in manual trigger:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Force generation endpoint (bypasses queue check)
+app.post('/api/force-generation', async (req, res) => {
+  try {
+    if (isGenerating) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Already generating, please wait' 
+      });
+    }
+    
+    console.log(`🔧 Force generation: Generating batch immediately...`);
+    isGenerating = true;
+    await generateFullBatch();
+    isGenerating = false;
+    
+    res.json({ 
+      success: true, 
+      message: 'Force generation completed',
+      currentRound
+    });
+  } catch (error) {
+    console.error('❌ Error in force generation:', error.message);
+    isGenerating = false;
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Queue status endpoint
+app.get('/api/queue-status', async (req, res) => {
+  try {
+    const response = await fetch(`${SOCKET_SERVER_URL}/health`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to check socket server' 
+      });
+    }
+    
+    const socketData = await response.json();
+    
+    res.json({
+      success: true,
+      backend: {
+        currentRound,
+        isGenerating,
+        lastQueueCheck: lastQueueCheck ? new Date(lastQueueCheck).toISOString() : null,
+        queueThreshold: QUEUE_THRESHOLD,
+        batchSize: BATCH_SIZE
+      },
+      socket: {
+        queueSize: socketData.queueSize,
+        gamePhase: socketData.gamePhase,
+        currentRound: socketData.currentRound,
+        currentMultiplier: socketData.currentMultiplier
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error checking queue status:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // Catch-all route for 404s (must be last)
 app.use('*', (req, res) => {
   res.status(404).json({ 
     error: 'Not Found', 
     message: 'Endpoint not found',
-    availableEndpoints: ['/', '/ping', '/health', '/api/multiplier/:round', '/api/multipliers', '/api/current', '/api/current-round']
+    availableEndpoints: [
+      '/', 
+      '/ping', 
+      '/health', 
+      '/api/multiplier/:round', 
+      '/api/multipliers', 
+      '/api/current', 
+      '/api/current-round',
+      '/api/trigger-generation',
+      '/api/force-generation',
+      '/api/queue-status'
+    ]
   });
 });
 
@@ -402,6 +574,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Backend started on port ${PORT} (round ${currentRound})`);
   console.log(`📦 Batch size: ${BATCH_SIZE} multipliers`);
-  console.log(`⏱️ Interval: ${ROUND_INTERVAL_MS}ms per multiplier`);
+  console.log(`⏱️ Interval: ${QUEUE_CHECK_INTERVAL}ms per queue check`);
   console.log(`🔍 Uptime monitoring: /, /ping, /health`);
 });
