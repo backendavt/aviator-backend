@@ -263,17 +263,82 @@ async function checkSocketQueueAndGenerate() {
   }
 }
 
+// Get the highest round number from database
+async function getHighestRoundNumber() {
+  try {
+    const { data, error } = await supabase
+      .from('multipliers')
+      .select('round_number')
+      .order('round_number', { ascending: false })
+      .limit(1);
+    
+    if (error) {
+      console.error('❌ Error getting highest round number:', error);
+      return 0;
+    }
+    
+    if (data && data.length > 0) {
+      return data[0].round_number;
+    }
+    
+    return 0;
+  } catch (error) {
+    console.error('❌ Error in getHighestRoundNumber:', error);
+    return 0;
+  }
+}
+
+// Check for existing round numbers to prevent conflicts
+async function checkExistingRounds(startRound, endRound) {
+  try {
+    const { data, error } = await supabase
+      .from('multipliers')
+      .select('round_number')
+      .gte('round_number', startRound)
+      .lte('round_number', endRound);
+    
+    if (error) {
+      console.error('❌ Error checking existing rounds:', error);
+      return false;
+    }
+    
+    if (data && data.length > 0) {
+      console.warn(`⚠️ Found ${data.length} existing rounds in range ${startRound}-${endRound}:`, data.map(r => r.round_number));
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('❌ Error in checkExistingRounds:', error);
+    return false;
+  }
+}
+
 // Generate a full batch of multipliers
 async function generateFullBatch() {
   console.log(`🎲 Generating batch of ${BATCH_SIZE} multipliers...`);
   
-  // Generate all multipliers for the batch
+  // Check for existing rounds to prevent conflicts
+  const batchStartRound = nextRoundToGenerate;
+  const batchEndRound = nextRoundToGenerate + BATCH_SIZE - 1;
+  
+  console.log(`🎲 Starting batch generation from round ${batchStartRound} to ${batchEndRound}`);
+  
+  // Check if any of these rounds already exist in the database
+  const hasExistingRounds = await checkExistingRounds(batchStartRound, batchEndRound);
+  if (hasExistingRounds) {
+    console.error(`🚨 CONFLICT: Rounds ${batchStartRound}-${batchEndRound} already exist in database!`);
+    console.error(`🚨 Skipping batch generation to prevent conflicts`);
+    return;
+  }
+  
   for (let i = 0; i < BATCH_SIZE; i++) {
     const multiplier = generateCrashMultiplier();
+    const currentRoundNumber = nextRoundToGenerate;
     
     // Add to buffer with the correct round number
     multiplierBuffer.push({
-      round_number: nextRoundToGenerate,
+      round_number: currentRoundNumber,
       multiplier
     });
     
@@ -287,21 +352,40 @@ async function generateFullBatch() {
     else if (multiplier >= 1.3) multiplierType = '📊 LOW';
     else multiplierType = '💥 CRASH';
     
-    console.log(`[Round ${nextRoundToGenerate}] ${multiplierType} Multiplier: ${multiplier}x`);
+    console.log(`[Round ${currentRoundNumber}] ${multiplierType} Multiplier: ${multiplier}x`);
     
     // Increment for next generation
     nextRoundToGenerate++;
   }
   
+  // Verify round number sequence
+  const actualBatchEndRound = nextRoundToGenerate - 1;
+  const expectedRounds = actualBatchEndRound - batchStartRound + 1;
+  if (expectedRounds !== BATCH_SIZE) {
+    console.error(`🚨 ROUND NUMBER ERROR: Expected ${BATCH_SIZE} rounds, got ${expectedRounds}`);
+    console.error(`🚨 Batch start: ${batchStartRound}, Batch end: ${actualBatchEndRound}`);
+  } else {
+    console.log(`✅ Round number sequence verified: ${batchStartRound} to ${actualBatchEndRound} (${BATCH_SIZE} rounds)`);
+  }
+  
   // Store all multipliers in database
+  console.log(`💾 Saving ${multiplierBuffer.length} multipliers to database...`);
+  console.log(`📋 First round: ${multiplierBuffer[0]?.round_number}, Last round: ${multiplierBuffer[multiplierBuffer.length - 1]?.round_number}`);
+  
   const { data, error } = await supabase
     .from('multipliers')
     .insert(multiplierBuffer);
   
   if (error) {
-    console.error('Error inserting batch multipliers:', error);
+    console.error('❌ Error inserting batch multipliers:', error);
+    console.error('❌ Error details:', JSON.stringify(error, null, 2));
+    console.error('❌ First multiplier in buffer:', multiplierBuffer[0]);
+    console.error('❌ Last multiplier in buffer:', multiplierBuffer[multiplierBuffer.length - 1]);
     return;
   }
+  
+  console.log(`✅ Successfully saved ${multiplierBuffer.length} multipliers to database`);
+  console.log(`📊 Database response:`, data ? `${data.length} rows inserted` : 'No data returned');
   
   // Safety check: ensure buffer has data before accessing
   if (multiplierBuffer.length === 0) {
@@ -370,11 +454,36 @@ setInterval(checkSocketQueueAndGenerate, QUEUE_CHECK_INTERVAL);
 // Display stats every 50 queue checks (approximately every 4 minutes)
 setInterval(displayDistributionStats, QUEUE_CHECK_INTERVAL * 50);
 
+// Initialize round numbers from database
+async function initializeRoundNumbers() {
+  try {
+    console.log(`🔍 Initializing round numbers from database...`);
+    const highestRound = await getHighestRoundNumber();
+    
+    if (highestRound > 0) {
+      // Start from the next round after the highest in database
+      currentRound = highestRound;
+      nextRoundToGenerate = highestRound + 1;
+      console.log(`✅ Synced with database: currentRound=${currentRound}, nextRoundToGenerate=${nextRoundToGenerate}`);
+    } else {
+      // No data in database, use default values
+      console.log(`📝 No existing data found, using default round numbers: currentRound=${currentRound}, nextRoundToGenerate=${nextRoundToGenerate}`);
+    }
+  } catch (error) {
+    console.error('❌ Error initializing round numbers:', error);
+    console.log(`⚠️ Using fallback round numbers: currentRound=${currentRound}, nextRoundToGenerate=${nextRoundToGenerate}`);
+  }
+}
+
 // Initial generation to get started
 console.log(`🚀 Starting queue-based multiplier generation system...`);
 console.log(`📊 Will check socket queue every ${QUEUE_CHECK_INTERVAL/1000} seconds`);
 console.log(`🎯 Will generate new batch when queue has ≤ ${QUEUE_THRESHOLD} multipliers`);
-setTimeout(checkSocketQueueAndGenerate, 2000); // Initial check after 2 seconds
+
+// Initialize round numbers first, then start the system
+initializeRoundNumbers().then(() => {
+  setTimeout(checkSocketQueueAndGenerate, 2000); // Initial check after 2 seconds
+});
 
 // Remove round syncing - socket server handles its own round progression
 
@@ -455,12 +564,12 @@ app.get('/api/current', async (req, res) => {
 
 // Add this endpoint to return the current round number and server time
 app.get('/api/current-round', (req, res) => {
-  // Set base timestamp to today (August 1, 2025) at 12:00 PM UTC
-  const today = new Date();
-  const BASE_TIMESTAMP = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 12, 0, 0);
-  const now = Date.now();
-  const currentRound = Math.max(1, Math.floor((now - BASE_TIMESTAMP) / 10_000));
-  res.json({ currentRound, now });
+  // Use the sequential round system for consistency with database
+  res.json({ 
+    currentRound: currentRound, 
+    nextRoundToGenerate: nextRoundToGenerate,
+    now: Date.now() 
+  });
 });
 
 // Manual trigger endpoint for testing queue-based generation
