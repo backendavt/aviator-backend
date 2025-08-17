@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 
 const BACKEND_URL = 'http://localhost:3000';
-const SOCKET_URL = 'https://aviator-socket-server.onrender.com';
+const SOCKET_URL = 'https://aviator-socket-server-yhzu.onrender.com';
 
 async function testQueueSystem() {
   console.log('🧪 Testing Queue-Based Multiplier Generation System\n');
